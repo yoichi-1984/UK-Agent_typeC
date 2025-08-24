@@ -27,7 +27,7 @@ UK-Agent-TypeCは、Azure OpenAIを活用したマルチエージェントシス
 
 ## Prerequisites
 
-- Python 3.11」以上
+- Python 3.11以上
 - Azure OpenAI サブスクリプション
 - 必要な環境変数を設定した `agent.env` ファイル
   - AZURE_OPENAI_ENDPOINT
@@ -39,11 +39,10 @@ UK-Agent-TypeCは、Azure OpenAIを活用したマルチエージェントシス
 ```bash
 # リポジトリをクローン
 git clone https://github.com/yoichi-1984/UK-Agent_typeC.git
-cd uk-agent-typec
 
 # 仮想環境の作成・有効化
 python -m venv .venv
-source .venv/bin/activate    # Unix/macOS
+source env/bin/activate    # Unix/macOS
 .\env\\Scripts\\activate # Windows
 
 # 依存パッケージをインストール
@@ -52,7 +51,7 @@ pip install -r requirements.txt
 
 ## 設定
 
-1. プロジェクトルートに `agent.env` ファイルを作成
+1. envフォルダに　'agent.env` ファイルを作成
 2. 以下のキーを設定
    ```env
    AZURE_OPENAI_ENDPOINT=<your_endpoint>
@@ -66,13 +65,7 @@ pip install -r requirements.txt
 
 ### CLIモード
 
-```bash
-# ヘルプ表示
-tui run --help
-
-# タスクを実行例
-tui run "プロジェクトのREADMEを生成してください"
-```
+0.1.5では一旦未実装。今後検討。
 
 ### TUIモード
 
