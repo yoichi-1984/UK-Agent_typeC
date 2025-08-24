@@ -27,7 +27,7 @@ UK-Agent-TypeCは、Azure OpenAIを活用したマルチエージェントシス
 
 ## Prerequisites
 
-- Python 3.8以上
+- Python 3.11」以上
 - Azure OpenAI サブスクリプション
 - 必要な環境変数を設定した `agent.env` ファイル
   - AZURE_OPENAI_ENDPOINT
