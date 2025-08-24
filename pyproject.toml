@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "uka-agent-typec"
+version = "0.1.5"
+description = "A command-line AI agent specialized in file operations and coding."
+authors = [
+  { name = "yoichi-1984", email = "yoichi.1984.engineer@gmail.com" },
+]
+readme = "README.md"
+requires-python = ">=3.11"
+classifiers = [
+    "Programming Language :: Python :: 3.11",
+    "License :: OSI Approved :: Apache License 2.0",
+    "Operating System :: Windows 11",
+]
+dependencies = [
+    "langchain-openai",
+    "langchain-core",
+    "python-dotenv",
+    "pydantic",
+    "pathspec",
+    "autopep8",
+    "flake8",
+    "openai",
+    "textual"
+]
+
+[project.scripts]
+uk-agentc = "uk_agentc.tui:main" 
+
+[tool.setuptools]
+package-dir = {"" = "src"}
