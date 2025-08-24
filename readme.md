@@ -44,7 +44,7 @@ cd uk-agent-typec
 # 仮想環境の作成・有効化
 python -m venv .venv
 source .venv/bin/activate    # Unix/macOS
-.\.venv\\Scripts\\activate # Windows
+.\env\\Scripts\\activate # Windows
 
 # 依存パッケージをインストール
 pip install -r requirements.txt
