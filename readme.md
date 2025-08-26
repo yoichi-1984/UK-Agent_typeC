@@ -8,10 +8,10 @@ UK-Agent-TypeCは、Azure OpenAIを活用したマルチエージェントシス
 
 このソフトウェアはtextualライブラリの最新機能を使います。
 以下の手順で導入を進めてください。
-python.exe -m pip install --upgrade pip
-pip install --upgrade pip setuptools
-pip install -e .
-**最後の . も重要です**
+python.exe -m pip install --upgrade pip  
+pip install --upgrade pip setuptools  
+pip install -e .  
+**最後の . も重要です**  
 
 ## 機能
 
