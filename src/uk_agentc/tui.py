@@ -4,6 +4,7 @@ UK-Agent-TypeC TUI: TextualベースのGUIアプリケーション。
 このモジュールは、UK-Agent-TypeCのメインエントリーポイントとして機能し、
 Textualフレームワークを使用してリッチな対話型UIを構築します。
 """
+import os
 from typing import List, Optional
 
 from textual.app import App, ComposeResult
@@ -18,6 +19,12 @@ from rich.text import Text
 from textual.drivers.windows_driver import WindowsDriver
 
 from langchain_core.messages import HumanMessage, BaseMessage, AIMessage
+
+# --- 1. 初期設定 ---
+# 他のモジュールが 'config.ROOT_DIRECTORY' を参照する前に、
+# アプリケーションのルートパスを設定する。
+from . import config
+config.set_project_root(os.getcwd())
 
 # --- UK-Agent-TypeCのコアモジュールをすべてインポート ---
 # (この部分はご自身のプロジェクトの構成に合わせてください)

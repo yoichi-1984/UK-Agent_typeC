@@ -13,16 +13,22 @@ from langchain_core.messages import HumanMessage, AIMessage, BaseMessage
 from langchain_core.exceptions import OutputParserException
 from openai import APIError
 
+# --- 1. 初期設定と環境変数の読み込み ---
+# 他のモジュールが 'config.ROOT_DIRECTORY' を参照する前に、
+# アプリケーションのルートパスを設定する。
+from . import config
+config.set_project_root(os.getcwd())
+
+# 環境変数の読み込み
+load_dotenv(os.path.join(config.ROOT_DIRECTORY, 'env', 'agent.env'))
+
+
 # --- エージェントとツールのインポート ---
 from .agents.supervisor import create_plan, present_plan
 from .agents.executor import execute_plan
 from .agents.verifier import verify_task
 from .agents.reporter import create_final_report
 
-from .config import ROOT_DIRECTORY
-
-# --- 1. 初期設定と環境変数の読み込み ---
-load_dotenv(os.path.join(ROOT_DIRECTORY, 'env', 'agent.env'))
 
 # --- ★ 新機能: エージェントの中核ロジックを関数化 ---
 def run_agent_cycle(user_input: str, conversation_history: List[BaseMessage]) -> str:
