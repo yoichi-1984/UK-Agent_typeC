@@ -7,7 +7,7 @@ UK-Agent-TypeC Reporter: 最終報告生成エージェント。
 from langchain_core.messages import SystemMessage
 
 from .schema import ExecutionPlan, ExecutionResult
-from ..llm_client import llm_client as llm # 共有クライアントをインポート
+from ..llm_client import get_llm_client
 
 # --- Reporterのロジック ---
 def create_final_report(
@@ -66,7 +66,7 @@ def create_final_report(
         print("  -> 複雑なタスクと判断し、詳細なレポートを生成します。")
 
     try:
-        response = llm.invoke([SystemMessage(content=prompt)])
+        response = get_llm_client().invoke([SystemMessage(content=prompt)])
         report = response.content
         print("  -> 報告書の作成が完了しました。")
         return report

@@ -67,4 +67,18 @@ def run_shell_command(command: str) -> str:
         return f"Error: An unexpected error occurred while running the command: {e}"
 
 # このファイルで定義されたツールのリスト
-system_tools = [run_shell_command]
+system_tools_list = [run_shell_command]
+
+# --- ▼▼▼ここからテストコードを追加▼▼▼ ---
+class SimpleToolArgs(BaseModel):
+    file_path: str = Field(description="A test file path.")
+
+@tool(args_schema=SimpleToolArgs)
+def simple_test_tool(file_path: str) -> str:
+    """file_path引数をテストするための最小構成ツール。"""
+    # このツールが正しく呼び出されたら、この成功メッセージが返る
+    return f"Success! The simple_test_tool received the path: {file_path}"
+
+# 既存のリストに新しいツールを追加
+system_tools_list.append(simple_test_tool)
+# --- ▲▲▲テストコードここまで▲▲▲ ---

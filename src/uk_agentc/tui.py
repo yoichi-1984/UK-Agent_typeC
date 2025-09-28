@@ -5,10 +5,11 @@ UK-Agent-TypeC TUI: TextualベースのGUIアプリケーション。
 Textualフレームワークを使用してリッチな対話型UIを構築します。
 """
 import os
+import json
+from datetime import datetime
 from typing import List, Optional
 
 from textual.app import App, ComposeResult
-# ★ 変更点: Horizontalコンテナをインポート
 from textual.containers import Grid, Horizontal
 from textual.screen import ModalScreen
 from textual.widgets import Header, Footer, RichLog, Button, Static, TextArea
@@ -21,19 +22,23 @@ from textual.drivers.windows_driver import WindowsDriver
 from langchain_core.messages import HumanMessage, BaseMessage, AIMessage
 
 # --- 1. 初期設定 ---
-# 他のモジュールが 'config.ROOT_DIRECTORY' を参照する前に、
-# アプリケーションのルートパスを設定する。
+# configモジュールをインポートするだけで初期設定が完了します
 from . import config
-config.set_project_root(os.getcwd())
 
 # --- UK-Agent-TypeCのコアモジュールをすべてインポート ---
-# (この部分はご自身のプロジェクトの構成に合わせてください)
-from .agents.supervisor import create_plan
-from .agents.executor import execute_plan
+from .agents.supervisor import create_plan, classify_task
+from .agents.executor import execute_plan, format_execution_summary
 from .agents.verifier import verify_task
 from .agents.reporter import create_final_report
 from .agents.schema import ExecutionPlan, ExecutionResult
 
+# 各ツールセットを個別にインポート (変数名を _list 付きに変更)
+from .tools.ai_assisted_coding_tools import ai_assisted_coding_tools_list
+from .tools.safe_code_editing_tools import safe_code_editing_tools_list
+from .tools.code_reporting_tools import code_reporting_tools_list
+from .tools.file_system_tools import file_system_tools_list
+from .tools.knowledge_tools import knowledge_tools_list
+from .tools import all_tools # フォールバック用に全ツールもインポート
 
 class ApprovalDialog(ModalScreen[bool]):
     """計画の実行を承認するためのモーダルダイアログ。"""
@@ -125,6 +130,7 @@ class AgentApp(App):
         log = self.query_one("#log", RichLog)
         log.write(Text.from_markup("🤖 [bold]UK-Agent-TypeCへようこそ！[/bold]"))
         log.write("   ファイル操作やコーディングに関するタスクをお手伝いします。")
+        log.write("   新しいタスクに移行したい場合は 'reset' と入力して送信してください。")
 
         # 入力欄にフォーカス
         self.query_one("#task_input", TextArea).focus()
@@ -140,19 +146,54 @@ class AgentApp(App):
         if event.button.id == "submit_button":
             text_area = self.query_one("#task_input", TextArea)
             user_input = text_area.text
+            log = self.query_one("#log", RichLog)
+
             if not user_input.strip():
                 return
 
-            self.initial_objective = user_input
-            self.conversation_history = [HumanMessage(content=user_input)]
-            self.feedback = None
-            self.current_attempt = 0
-
-            log = self.query_one("#log", RichLog)
-            log.write(Text.from_markup(f"\n[bold green]💬 あなた:[/bold green]\n{user_input}"))
-
             # 入力欄をクリア
             text_area.clear()
+
+            # 'reset'コマンドの処理
+            if user_input.strip().lower() == "reset":
+                # --- ★ 変更点: JSONログ保存機能 ---
+                if self.conversation_history:
+                    # タイムスタンプ付きのファイル名を作成
+                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    log_file_path = os.path.join(config.ROOT_DIRECTORY, "agent_log", f"log_{timestamp}.json")
+
+                    # BaseMessageオブジェクトを辞書に変換
+                    history_to_save = [
+                        {"type": msg.type, "content": msg.content}
+                        for msg in self.conversation_history
+                    ]
+
+                    try:
+                        # agent_logディレクトリがなければ作成
+                        os.makedirs(os.path.dirname(log_file_path), exist_ok=True)
+                        # JSONファイルに書き込み
+                        with open(log_file_path, "w", encoding="utf-8") as f:
+                            json.dump(history_to_save, f, ensure_ascii=False, indent=4)
+                        log.write(Text.from_markup(f"\n📄 [dim]会話ログを {log_file_path} に保存しました。[/dim]"))
+                    except Exception as e:
+                        log.write(Text.from_markup(f"\n[bold red]⚠️ ログの保存に失敗しました:[/bold red] {e}"))
+                # --- ★ 変更点ここまで ---
+
+                self.conversation_history = []
+                self.initial_objective = ""
+                self.feedback = None
+                log.write(Text.from_markup("\n🤖 [bold yellow]会話の文脈をリセットしました。[/bold yellow]"))
+                return
+
+            log.write(Text.from_markup(f"\n[bold green]💬 あなた:[/bold green]\n{user_input}"))
+
+            # 新しいタスクとして設定
+            if not self.conversation_history:
+                self.initial_objective = user_input
+
+            self.conversation_history.append(HumanMessage(content=user_input))
+            self.feedback = None
+            self.current_attempt = 0
 
             # 次の処理開始
             self._set_input_disabled(True)
@@ -162,6 +203,7 @@ class AgentApp(App):
     def action_noop(self) -> None:
         """Does nothing. Used for display-only bindings."""
         pass
+#----------------------------------------
 
     def plan_task(self) -> None:
         log = self.query_one("#log", RichLog)
@@ -170,9 +212,43 @@ class AgentApp(App):
             log.write,
             Text.from_markup(f"\n[bold]--- 試行 {self.current_attempt}/{self.max_attempts} ---[/bold]"),
         )
+
+        # ユーザーの最新の指示を取得
+        user_input = ""
+        for msg in reversed(self.conversation_history):
+            if isinstance(msg, HumanMessage):
+                user_input = msg.content
+                break
+
+        if not user_input:
+            self.call_from_thread(log.write, Text.from_markup("[bold red]⚠️ ユーザーの指示が見つかりませんでした。[/bold red]"))
+            self.call_from_thread(self._set_input_disabled, False)
+            return
+
+        # --- ★ ここからが新しいロジック ★ ---
+        self.call_from_thread(log.write, "🧠 タスクの種類を分析中...")
+        task_type = classify_task(user_input)
+        self.call_from_thread(log.write, f"  -> 分類結果: {task_type}")
+
+        relevant_tools = []
+        if task_type == "code_editing":
+            # 📝 変数名を「_list」が付いたものに変更
+            relevant_tools = safe_code_editing_tools_list + ai_assisted_coding_tools_list + file_system_tools_list
+        elif task_type == "reporting":
+            # 📝 変数名を「_list」が付いたものに変更
+            relevant_tools = code_reporting_tools_list + file_system_tools_list + knowledge_tools_list
+        elif task_type == "file_system":
+            # 📝 変数名を「_list」が付いたものに変更
+            relevant_tools = file_system_tools_list
+        else: # general_qa の場合
+            relevant_tools = all_tools # フォールバックとして全ツールを提供
+
+        # --- ★ ここまでが新しいロジック ★ ---
+
         self.call_from_thread(log.write, "🤔 Supervisorが計画を立案中...")
         try:
-            plan = create_plan(self.conversation_history, self.feedback)
+            # 改造した create_plan に relevant_tools を渡す
+            plan = create_plan(self.conversation_history, relevant_tools, self.feedback)
             self.call_from_thread(self.display_plan, plan)
         except Exception as e:
             self.call_from_thread(
@@ -236,6 +312,8 @@ class AgentApp(App):
             self.current_worker.cancel()
             self._set_input_disabled(False)
 
+#-------------------------------------------------------------------------------------------
+
     def execute_and_verify_task(self, plan: ExecutionPlan) -> None:
         """計画の実行から検証、報告までを行うメインのWorker。"""
         log = self.query_one("#log", RichLog)
@@ -246,7 +324,7 @@ class AgentApp(App):
         while True:
             try:
                 log_message = next(execution_generator)
-                self.call_from_thread(log.write, f"   {log_message}")
+                self.call_from_thread(log.write, f"  {log_message}")
             except StopIteration as e:
                 final_result = e.value
                 break
@@ -269,18 +347,34 @@ class AgentApp(App):
             self.call_from_thread(self._set_input_disabled, False)
             return
 
-        self.call_from_thread(log.write, "\n🔍 Verifierが作業結果の検証を開始...")
-        execution_summary = "\n".join(final_result.results)  # pylint: disable=no-member
+        # --- ★ 変更点: 現在のタスク目的を動的に取得 ---
+        # 会話履歴を逆順に探索し、最後のユーザーメッセージを現在の目的として使用する
+        current_objective = ""
+        for msg in reversed(self.conversation_history):
+            if isinstance(msg, HumanMessage):
+                current_objective = msg.content
+                break
+        
+        if not current_objective:
+                self.call_from_thread(
+                    log.write,
+                    Text.from_markup("[bold red]⚠️ 現在のタスク目的が見つかりませんでした。[/bold red]"),
+                )
+                self.call_from_thread(self._set_input_disabled, False)
+                return
 
-        verification = verify_task(self.initial_objective, plan.thought, execution_summary)
+        self.call_from_thread(log.write, "\n🔍 Verifierが作業結果の検証を開始...")
+        execution_summary = format_execution_summary(final_result)
+
+        verification = verify_task(current_objective, plan.thought, execution_summary)
 
         if verification.is_success:
             self.call_from_thread(
                 log.write,
-                Text.from_markup("   [bold green]✨ Verifierの判断: 成功[/bold green]"),
+                Text.from_markup("  [bold green]✨ Verifierの判断: 成功[/bold green]"),
             )
             self.call_from_thread(log.write, "\n🖋️ Reporterが最終報告書の作成を開始...")
-            report = create_final_report(self.initial_objective, plan, final_result)
+            report = create_final_report(current_objective, plan, final_result)
             self.call_from_thread(
                 log.write,
                 Text.from_markup(f"\n[bold blue]✅ エージェント:[/bold blue]\n{report}"),
@@ -291,8 +385,8 @@ class AgentApp(App):
             self.call_from_thread(
                 log.write,
                 Text.from_markup(
-                    f"   [bold red]❌ Verifierの判断: 失敗/不完全[/bold red]\n"
-                    f"   [bold]フィードバック:[/bold] {verification.feedback}"
+                    f"  [bold red]❌ Verifierの判断: 失敗/不完全[/bold red]\n"
+                    f"  [bold]フィードバック:[/bold] {verification.feedback}"
                 ),
             )
             self.feedback = verification.feedback
@@ -321,7 +415,8 @@ class AgentApp(App):
                     ),
                 )
                 self.call_from_thread(self._set_input_disabled, False)
-
+                
+#-----------------------------------------------------------------------
 
 def main():
     app = AgentApp()

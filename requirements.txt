@@ -1,0 +1,11 @@
+langchain-openai
+langchain-core
+python-dotenv
+pydantic
+pathspec
+autopep8
+flake8
+openai
+rich
+textual @ git+https://github.com/Textualize/textual.git@47d05079d7c7b712f45b953f88ea6fcbd6e07b48
+PyYAML

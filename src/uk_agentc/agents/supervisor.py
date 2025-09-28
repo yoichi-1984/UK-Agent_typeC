@@ -5,31 +5,22 @@ UK-Agent-TypeC Supervisor: 計画立案エージェント。
 具体的な実行計画(ExecutionPlan)を立案します。
 """
 import os
+import yaml
 from typing import List, Optional
 
-from dotenv import load_dotenv
-from langchain_openai import AzureChatOpenAI
 from langchain_core.messages import BaseMessage, SystemMessage
+from pydantic import ValidationError
 
 # --- ローカルモジュールからのインポート ---
-from ..tools import all_tools
-from .schema import ExecutionPlan
+from ..llm_client import get_planner_llm_client, get_llm_client
+from .schema import ExecutionPlan, ToolCall
 
-
-# --- LLMクライアントの準備 ---
-load_dotenv(os.path.join(os.getcwd(), 'env', 'agent.env'))
-llm = AzureChatOpenAI(
-    openai_api_version=os.environ.get("AZURE_OPENAI_API_VERSION"),
-    azure_deployment=os.environ.get("AZURE_OPENAI_DEPLOYMENT_NAME"),
-    azure_endpoint=os.environ.get("AZURE_OPENAI_ENDPOINT"),
-    api_key=os.environ.get("AZURE_OPENAI_API_KEY"),
-)
 
 # --- ヘルパー関数 ---
-def get_tools_string() -> str:
-    # ... (この関数の中身は変更ありません) ...
+def get_tools_string(tools: List) -> str:
+    """利用可能なツールの一覧と説明を整形して返す。"""
     tool_strings = []
-    for tool in all_tools:
+    for tool in tools:
         tool_strings.append(f"ツール名: {tool.name}")
         tool_strings.append(f"  説明: {tool.description}")
         if tool.args_schema:
@@ -47,11 +38,48 @@ def get_tools_string() -> str:
                 tool_strings.append("  引数:")
                 tool_strings.extend(arg_details)
         tool_strings.append("-" * 20)
+    
     return "\n".join(tool_strings)
+
+def _validate_plan(plan: ExecutionPlan) -> Optional[str]:
+    """
+    LLMによって生成された計画が、ツールの引数スキーマに準拠しているか検証する。
+    致命的なエラーがないかを確認し、余分な引数は警告のみに留める。
+    """
+    from ..tools import all_tools
+    tool_map = {tool.name: tool.args_schema for tool in all_tools}
+
+    if not plan.plan:
+        return None
+
+    for step in plan.plan:
+        if not isinstance(step, ToolCall):
+            return f"計画のステップ {step} が不正な形式です。"
+
+        schema = tool_map.get(step.tool_name)
+        if not schema:
+            return f"計画に含まれるツール '{step.tool_name}' は存在しません。"
+
+        expected_args = set(schema.schema().get('properties', {}).keys())
+        received_args = set(step.arguments.keys())
+
+        extra_args = received_args - expected_args
+        if extra_args:
+            print(f"[DEBUG] 警告: ツール '{step.tool_name}' に予期しない引数 {list(extra_args)} が含まれていますが、無視して続行します。")
+            for arg in extra_args:
+                del step.arguments[arg]
+
+        try:
+            schema(**step.arguments)
+        except ValidationError as e:
+            return (f"ツール '{step.tool_name}' の引数が不正です（必須引数の不足や型の誤り）。\n"
+                    f"エラー詳細: {e}")
+
+    return None
 
 # --- Supervisorのロジック ---
 def create_plan(
-    messages: List[BaseMessage], feedback: Optional[str] = None
+    messages: List[BaseMessage], tools: List, feedback: Optional[str] = None
 ) -> ExecutionPlan:
     """
     ユーザーの要求や失敗フィードバックから、具体的な実行計画を立案する。
@@ -66,63 +94,78 @@ def create_plan(
 このフィードバックを元に、問題を解決するための**新しい**実行計画を立ててください。
 """
 
-    # ★ 修正点: 最終回答のルールとJSON出力例を更新
-    planner_system_prompt = f"""あなたは、ユーザーの要求を達成するための具体的で抜け漏れのない実行計画を立てる、
-非常に優秀な計画立案AIです。あなたの思考と応答は、すべて日本語で行う必要があります。
-{replan_prompt}
-**利用可能なツールリストと引数:**
-{get_tools_string()}
+    prompt_file_path = os.path.join(os.path.dirname(__file__), "supervisor_prompt.yaml")
+    with open(prompt_file_path, "r", encoding="utf-8") as f:
+        yaml_content = yaml.safe_load(f)
+        planner_system_prompt_template = yaml_content["prompt_template"]
 
-**思考と計画に関するルール:**
-
-1.  **【最重要】パスの解釈**: ユーザーが「ルートディレクトリ」「カレントディレクトリ」「今の場所」など、曖昧な場所を指示した場合、それは**常にプロジェクトのルートディレクトリ `.`** を指します。`/` や `C:\\` のようなファイルシステムの絶対ルートパスにアクセスしようとしてはいけません。
-2.  **ツールの選択戦略**: 常に、ユーザーの目的を最も少ないステップで、最も直接的に達成できる高レベルな専門ツール（例: `generate_codebase_report`）を最優先で使用してください。
-3.  **最終回答の生成**: ユーザーの質問が一般的な知識を問うもので、他のどのツールも適切でない場合、または全てのタスクが完了し最終的な答えを返す準備ができた場合は、**必ず`final_answer`ツールを呼び出してください。** `answer`引数には、ユーザーに対する完全な回答を記述します。`plan`を空リスト`[]`にするのは、計画立案自体に失敗した場合など、本当に最後の手段だけにしてください。
-4.  **その他のルール**: セキュリティエラーを正しく解釈し、コード修正時は元の機能を維持してください。
-
-**JSON出力の具体例:**
-```json
-// 一般的な質問への回答の理想的な計画例
-{{
-  "thought": "ユーザーの質問は一般的な知識に関するものなので、直接回答します。",
-  "plan": [
-    {{
-      "tool_name": "final_answer",
-      "arguments": {{
-        "answer": "「クラウドネイティブ」とは、アプリケーションの設計、開発、デプロイ、運用の手法であり、クラウドコンピューティングの利点を最大限に活用することを目的としています。具体的には、コンテナ化、マイクロサービスアーキテクチャ、CI/CD、宣言的APIなどの技術要素に基づいています。"
-      }}
-    }}
-  ]
-}}
-```json
-// ルートディレクトリのファイル一覧表示の理想的な計画例
-{{
-  "thought": "ユーザーの指示に従い、プロジェクトのルートディレクトリにあるファイルの一覧を表示します。",
-  "plan": [
-    {{
-      "tool_name": "list_files",
-      "arguments": {{
-        "directory": "."
-      }}
-    }}
-  ]
-}}
-```
-"""
+    planner_system_prompt = planner_system_prompt_template.format(
+        replan_prompt=replan_prompt,
+        tools_string=get_tools_string(tools)
+    )
 
     planner_messages = [SystemMessage(content=planner_system_prompt)] + messages
-    planner_llm = llm.with_structured_output(ExecutionPlan, method="function_calling")
+
+    if feedback:
+        print("\n🤔 失敗フィードバックに基づき、高性能モデルで再計画を実行します...")
+        llm_instance = get_llm_client()
+    else:
+        llm_instance = get_planner_llm_client()
+
+    structured_llm = llm_instance.with_structured_output(ExecutionPlan, method="function_calling")
 
     try:
-        if feedback:
-            print("\n🤔 Supervisorが失敗フィードバックを元に再計画中...")
-        plan = planner_llm.invoke(planner_messages)
+        plan = structured_llm.invoke(planner_messages)
+
+        validation_error = _validate_plan(plan)
+        if validation_error:
+            print(f"\n⚠️ 生成された計画に論理的な問題があったため、修正を試みます: {validation_error}")
+            return create_plan(messages, tools, feedback=validation_error)
+
         return plan
+    except ValidationError as e:
+        error_message = f"LLMの出力構造にエラーがありました。修正して再計画します。エラー詳細: {e}"
+        print(f"\n⚠️ {error_message}")
+        return create_plan(messages, tools, feedback=error_message)
     except Exception as e:
-        print(f"\n⚠️ 実行計画の立案中にエラーが発生しました。エラー: {e}")
-        return ExecutionPlan(thought="計画の立案に失敗しました。", plan=[])
+        error_message = f"計画の立案中に予期せぬエラーが発生しました。根本的な原因: {e}"
+        print(f"\n⚠️ {error_message}")
+        return ExecutionPlan(thought=error_message, plan=[])
 
 def present_plan(plan: ExecutionPlan) -> bool:
-    # ... (この関数の中身は変更ありません) ...
-    return True # TUIではこの関数は実質的に使われない
+    """
+    計画を提示する（TUI/CLIモードの互換性のために残されています）。
+    現在は常にTrueを返します。
+    """
+    return True
 
+def classify_task(user_input: str) -> str:
+    """
+    ユーザーの指示を事前定義されたカテゴリに分類する。
+    """
+    from ..llm_client import get_llm_client
+
+    prompt = f"""ユーザーの要求を以下のカテゴリのいずれか一つに分類してください。
+回答は必ずカテゴリ名のみ（例: code_editing）とし、他の単語は一切含めないでください。
+
+# カテゴリ
+- code_editing: ファイルの作成、変更、修正、リファクタリング、コードの記述など。
+- reporting: コードベースの分析、レポート作成、ファイルの要約など。
+- file_system: ファイルやディレクトリの検索、一覧表示、削除など。
+- general_qa: 上記以外。一般的な質問への回答、計画の相談など。
+
+# ユーザーの要求
+{user_input}
+
+# 分類結果:"""
+
+    try:
+        response = get_llm_client().invoke([SystemMessage(content=prompt)])
+        classification = response.content.strip().lower()
+        
+        if classification not in ["code_editing", "reporting", "file_system", "general_qa"]:
+            return "general_qa"
+            
+        return classification
+    except Exception:
+        return "general_qa"

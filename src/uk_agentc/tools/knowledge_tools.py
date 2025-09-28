@@ -27,5 +27,5 @@ def final_answer(answer: str) -> str:
     return answer
 
 # __init__.pyがインポートできるように、ツールのリストを定義します。
-knowledge_tools = [final_answer]
+knowledge_tools_list = [final_answer]
 

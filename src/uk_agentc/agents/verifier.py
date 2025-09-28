@@ -10,7 +10,7 @@ import os
 from langchain_core.messages import SystemMessage
 
 from .schema import VerificationResult
-from ..llm_client import llm_client as llm # ★ 共有クライアントをインポート
+from ..llm_client import get_llm_client
 
 # --- Verifierのロジック (アーキテクチャ刷新) ---
 def verify_task(
@@ -51,9 +51,10 @@ def verify_task(
 **フィードバックに関する重要ルール:**
 - **成功した場合:** `feedback`には、後のプロセスで利用するため、簡潔に「タスクは正常に完了しました。」とだけ記述してください。ユーザーへの詳細な報告は、この後専門のReporterが行います。
 - **失敗した場合:** `feedback`には、単なるエラー内容の報告に留めず、「〇〇というエラーが発生しましたが、これは△△が原因と考えられます。次の試行では、□□というアプローチで解決を試みます。」のように、**原因の推測と、具体的な次のアクションプラン**を必ずセットで記述してください。
+- **【重要】引数エラーの扱い:** もしエラーが `unexpected keyword argument` に関するものであった場合、**引数名を安易に推測してはいけません。** Supervisorに対して「**ツールの定義を再確認し、正しい引数名で再実行する**」ように明確に指示してください。安易な代替案（例: 'path' を 'file_path' にするなど）を提示することは禁止します。 # ◀️ このルールを追加
 """
 
-    judgment_llm = llm.with_structured_output(
+    judgment_llm = get_llm_client().with_structured_output(
         VerificationResult, method="function_calling"
     )
 

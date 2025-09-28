@@ -3,8 +3,8 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "uka-agent-typec"
-version = "0.1.8"
+name = "uk-agent-typec"
+version = "0.2.1"
 description = "A command-line AI agent specialized in file operations and coding."
 authors = [
   { name = "yoichi-1984", email = "yoichi.1984.engineer@gmail.com" },
@@ -26,7 +26,8 @@ dependencies = [
     "flake8",
     "openai",
     "rich", 
-    "textual @ git+https://github.com/Textualize/textual.git@47d05079d7c7b712f45b953f88ea6fcbd6e07b48" # バージョンを固定
+    "textual @ git+https://github.com/Textualize/textual.git@47d05079d7c7b712f45b953f88ea6fcbd6e07b48", # バージョンを固定
+    "PyYAML"
 ]
 
 [project.scripts]
@@ -34,3 +35,6 @@ uk-agentc = "uk_agentc.tui:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
+
+[tool.setuptools.package-data]
+uk_agentc = ["*.yaml"]

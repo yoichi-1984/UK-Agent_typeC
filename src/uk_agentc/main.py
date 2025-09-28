@@ -8,24 +8,17 @@ import sys
 import importlib.metadata
 from typing import List
 
-from dotenv import load_dotenv
 from langchain_core.messages import HumanMessage, AIMessage, BaseMessage
 from langchain_core.exceptions import OutputParserException
 from openai import APIError
 
-# --- 1. 初期設定と環境変数の読み込み ---
-# 他のモジュールが 'config.ROOT_DIRECTORY' を参照する前に、
-# アプリケーションのルートパスを設定する。
+# --- 1. 初期設定 ---
+# configモジュールをインポートするだけで初期設定が完了します
 from . import config
-config.set_project_root(os.getcwd())
-
-# 環境変数の読み込み
-load_dotenv(os.path.join(config.ROOT_DIRECTORY, 'env', 'agent.env'))
-
 
 # --- エージェントとツールのインポート ---
 from .agents.supervisor import create_plan, present_plan
-from .agents.executor import execute_plan
+from .agents.executor import execute_plan, format_execution_summary
 from .agents.verifier import verify_task
 from .agents.reporter import create_final_report
 
@@ -54,22 +47,9 @@ def run_agent_cycle(user_input: str, conversation_history: List[BaseMessage]) ->
         if not plan.plan:
             final_result = plan.thought
             break
-
-        execution_result = execute_plan(plan)
         
-        # 実行結果をサマリー文字列に変換
-        execution_summary = ""
-        # ... (ご提示いただいたサマリー作成ロジックはここにそのまま入ります) ...
-        if execution_result.status == "success":
-            summary_header = "計画の実行が正常に完了しました。各ステップの結果は以下の通りです:"
-            execution_summary = summary_header + "\n" + "\n".join(execution_result.results)
-        else:
-            summary_header = "計画の実行が失敗しました。"
-            execution_summary = summary_header + "\n"
-            if execution_result.results:
-                execution_summary += "成功したステップの結果:\n" + "\n".join(execution_result.results) + "\n"
-            execution_summary += f"失敗したステップ {execution_result.failed_step}: {execution_result.error_message}"
-
+        execution_result = execute_plan(plan)
+        execution_summary = format_execution_summary(execution_result)
 
         conversation_history.append(AIMessage(content=f"ツールの実行結果:\n{execution_summary}"))
 
