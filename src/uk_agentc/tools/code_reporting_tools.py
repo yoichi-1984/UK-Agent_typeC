@@ -14,6 +14,8 @@ from ..utils.path_utils import is_path_allowed
 # 必要な関数を直接インポートするように修正
 from .safe_code_editing_tools import _backup_file_if_needed, read_file_safely
 from .file_system_tools import write_file
+from ..config import ROOT_DIRECTORY, CODE_FILE_EXTENSIONS
+
 
 class GenerateCodebaseReportArgs(BaseModel):
     """ generate_codebase_report ツールの引数モデル。 """
@@ -33,16 +35,19 @@ def generate_codebase_report(directory_path: str, output_file_path: str, **kwarg
     _backup_file_if_needed(full_output_path)
 
     try:
-        search_pattern = os.path.join(ROOT_DIRECTORY, directory_path, '**', '*.py')
-        py_files = [
-            f for f in glob.glob(search_pattern, recursive=True)
-            if is_path_allowed(os.path.relpath(f, ROOT_DIRECTORY)) and os.path.isfile(f)
+        all_files_pattern = os.path.join(ROOT_DIRECTORY, directory_path, '**', '*')
+        all_files = glob.glob(all_files_pattern, recursive=True)
+         # 拡張子でフィルタリング
+        target_files = [
+            f for f in all_files
+            if os.path.isfile(f) and os.path.splitext(f)[1] in CODE_FILE_EXTENSIONS
+            and is_path_allowed(os.path.relpath(f, ROOT_DIRECTORY))
         ]
-        if not py_files:
-            return "No Python files found in the specified directory."
+        if not target_files:
+            return "No source code files found in the specified directory."
         
         report_body = ""
-        for file_path in py_files:
+        for file_path in target_files:
             relative_path = os.path.relpath(file_path, ROOT_DIRECTORY)
             # 直接インポートした関数を呼び出す
             content = read_file_safely.run({"file_path": relative_path})
@@ -51,7 +56,7 @@ def generate_codebase_report(directory_path: str, output_file_path: str, **kwarg
             elif not content.strip():
                 summary = "このファイルは空です。"
             else:
-                prompt = f"""以下のPythonコードを分析し、その主な役割と機能を日本語で簡潔に要約してください。
+                prompt = f"""以下のソースコードを分析し、その主な役割と機能を日本語で簡潔に要約してください。
 コードの細部ではなく、全体として何をするためのファイルなのかを説明してください。
 
 ---コード---
